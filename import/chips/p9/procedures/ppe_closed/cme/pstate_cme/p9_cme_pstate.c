@@ -5,7 +5,7 @@
 /*                                                                        */
 /* OpenPOWER HCODE Project                                                */
 /*                                                                        */
-/* COPYRIGHT 2015,2018                                                    */
+/* COPYRIGHT 2015,2020                                                    */
 /* [+] International Business Machines Corp.                              */
 /*                                                                        */
 /*                                                                        */
@@ -82,12 +82,12 @@ int send_pig_packet(uint64_t data, uint32_t coreMask)
     }
     while ((((ppm_pig_t)data_tmp).fields.pending_source & 0x1));
 
-    PK_TRACE_INF("send pig core=0x%x, data=0x%08x%08x", coreMask, data >> 32, data);
+    //PK_TRACE_INF("send pig core=0x%x, data=0x%08x%08x", coreMask, data >> 32, data);
 
     // Send PIG packet
     CME_PUTSCOM(PPM_PIG, coreMask, data);
-    PK_TRACE_DBG("CME: Sending PIG[%x] at core[%x]",
-                 (uint32_t)(data >> 32), coreMask);
+    //PK_TRACE_DBG("CME: Sending PIG[%x] at core[%x]",
+    //           (uint32_t)(data >> 32), coreMask);
 
     pk_critical_section_exit(&ctx);
 
@@ -107,6 +107,8 @@ uint32_t poll_dpll_stat()
 {
     data64_t data;
     uint32_t rc = 0;
+    uint32_t ack = 0;
+    uint32_t pgpe_notified = 0;
 
     // DPLL Modes
     //                     enable_fmin    enable_fmax   enable_jump
@@ -125,7 +127,7 @@ uint32_t poll_dpll_stat()
     // DPLL Mode 2
     if(!(in32(G_CME_LCL_FLAGS) & BIT32(CME_FLAGS_VDM_OPERABLE)))
     {
-        PK_TRACE_INF("Poll on DPLL_STAT[freq_change=0]");
+        //PK_TRACE_INF("Poll on DPLL_STAT[freq_change=0]");
 
         // ... to indicate that the DPLL is safely either at the new frequency
         // or in droop protection below the new frequency
@@ -138,7 +140,7 @@ uint32_t poll_dpll_stat()
     else
         // DPLL Mode 3
     {
-        PK_TRACE_INF("Poll on DPLL_STAT[update_complete=1]");
+        //PK_TRACE_INF("Poll on DPLL_STAT[update_complete=1]");
         // ... to indicate that the DPLL has sampled the newly requested
         // frequency into its internal registers as a target,
         // but may not yet be there
@@ -181,8 +183,27 @@ uint32_t poll_dpll_stat()
             if (!(csar.value & BIT64(CPPM_CSAR_DISABLE_CME_NACK_ON_PROLONGED_DROOP)) &&
                 elapsed > DROOP_POLL_COUNT)
             {
-                rc = 1; //Non-zero return code
-                break;
+                if (!(csar.value & BIT64(CPPM_CSAR_DISABLE_CME_NACK_ON_PROLONGED_DROOP)))
+                {
+                    rc = 1; //Non-zero return code
+                    break;
+                }
+                else if ((csar.value & BIT64(CPPM_CSAR_DISABLE_CME_NACK_ON_PROLONGED_DROOP)) && (pgpe_notified == 0))
+                {
+                    pgpe_notified = 1;
+                    //PK_TRACE_INF("Nack on Droop disabled. Notifying PGPE about droop condition");
+                    ack = MSGID_PCB_TYPE4_NACK_DROOP_PRESENT_WITH_CSAR_SET;
+                    send_ack_to_pgpe(ack);
+
+                    //Check for PGPE Ack
+                    CME_GETSCOM(CPPM_CSAR, G_cme_pstate_record.firstGoodCoreMask, csar.value);
+
+                    while (!(csar.value & BIT64(CPPM_CSAR_PGPE_ACK_FOR_NACK_ON_PROLONGED_DROOP_W_CSAR_SET)))
+                    {
+                        //Spin until PGPE acks back
+                        CME_GETSCOM(CPPM_CSAR, G_cme_pstate_record.firstGoodCoreMask, csar.value);
+                    }
+                }
             }
         }
         while(1);
@@ -273,7 +294,7 @@ void intercme_msg_send(uint32_t msg, INTERCME_MSG_TYPE type)
 {
     out32(G_CME_LCL_ICSR, (msg << 4) | type);
 
-    PK_TRACE_DBG("imt send | msg=%08x", ((msg << 4) | type));
+    //PK_TRACE_DBG("imt send | msg=%08x", ((msg << 4) | type));
 
     // Block on ack from companion CME
     while(!(in32(G_CME_LCL_EISR) & BIT32(30))) {}
@@ -287,7 +308,7 @@ void intercme_msg_recv(uint32_t* msg, INTERCME_MSG_TYPE type)
     while(!(in32(G_CME_LCL_EISR) & BIT32(29))) {}
 
     *msg = in32(G_CME_LCL_ICRR);
-    PK_TRACE_DBG("imt recv | msg=%08x", *msg);
+    //PK_TRACE_DBG("imt recv | msg=%08x", *msg);
 
     if(*msg & type)
     {
@@ -373,7 +394,7 @@ uint32_t p9_cme_resclk_get_index(uint32_t pstate)
     // disabled
     while((pstate > G_lppb->resclk.resclk_freq[--i]) && (i > 0)) {}
 
-    PK_TRACE_DBG("resclk_idx[i=%d]=%d", i, G_lppb->resclk.resclk_index[i]);
+    //PK_TRACE_DBG("resclk_idx[i=%d]=%d", i, G_lppb->resclk.resclk_index[i]);
     return((uint32_t)G_lppb->resclk.resclk_index[i]);
 }
 #endif//USE_CME_RESCLK_FEATURE
@@ -390,7 +411,7 @@ void p9_cme_core_stop_analog_control(uint32_t core_mask, ANALOG_CONTROL enable)
 
         if(enable)
         {
-            PK_TRACE_INF("resclk | enabling resclks");
+            //PK_TRACE_INF("resclk | enabling resclks");
 
             if(core_mask == CME_MASK_C0)
             {
@@ -414,7 +435,7 @@ void p9_cme_core_stop_analog_control(uint32_t core_mask, ANALOG_CONTROL enable)
         }
         else
         {
-            PK_TRACE_INF("resclk | disabling resclks");
+            //PK_TRACE_INF("resclk | disabling resclks");
             // 1) copy QACCR[0:12] into CACCR[0:12], with CACCR[13:14]=0b00,
             //    to switch away from common control. QACCR will already be set
             //    to a value corresponding to the current quad Pstate
@@ -438,7 +459,7 @@ void p9_cme_core_stop_analog_control(uint32_t core_mask, ANALOG_CONTROL enable)
     {
         if(enable)
         {
-            PK_TRACE_INF("vdm | enabling vdms");
+            //PK_TRACE_INF("vdm | enabling vdms");
             // Clear Disable
             // (Poweron is set earlier in Stop4 Exit flow
             // due to delay required between poweron and enable)
@@ -446,7 +467,7 @@ void p9_cme_core_stop_analog_control(uint32_t core_mask, ANALOG_CONTROL enable)
         }
         else
         {
-            PK_TRACE_INF("vdm | disabling vdms");
+            //PK_TRACE_INF("vdm | disabling vdms");
             // Set Disable (Poweron is cleared in Stop4 Entry)
             CME_PUTSCOM(PPM_VDMCR_OR, core_mask, BIT64(1));
         }
@@ -623,7 +644,7 @@ inline uint32_t update_vdm_jump_values_in_dpll(uint32_t pstate, uint32_t region)
             // Clear jump enable (drop to Mode 2)
             nonatomic_ippm_write(QPPM_DPLL_CTRL_CLR, BIT64(1));
             // Poll for lock
-            PK_TRACE_INF("Poll on DPLL_STAT[block_active|lock]");
+            //PK_TRACE_INF("Poll on DPLL_STAT[block_active|lock]");
 
             // ... to indicate that the DPLL is safely either at the new frequency
             // or in droop protection below the new frequency
@@ -796,9 +817,9 @@ void p9_cme_resclk_update(ANALOG_TARGET target, uint32_t next_idx, uint32_t curr
     uint64_t val;
     int32_t  step;
 
-    PK_TRACE_DBG("resclk | target=%08x", (uint32_t)target);
-    PK_TRACE_DBG("resclk | curr_idx=%d", curr_idx);
-    PK_TRACE_DBG("resclk | next_idx=%d", next_idx);
+    //PK_TRACE_DBG("resclk | target=%08x", (uint32_t)target);
+    //PK_TRACE_DBG("resclk | curr_idx=%d", curr_idx);
+    //PK_TRACE_DBG("resclk | next_idx=%d", next_idx);
 
     // Determine the step polarity, step is not used if curr_idx == next_idx
     if(curr_idx < next_idx)
